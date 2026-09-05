@@ -58,7 +58,10 @@ export const SimpleCleanDashboard: React.FC = () => {
     let isMounted = true;
     const fetchTelemetry = async () => {
       try {
-        const res = await fetch('/api/telemetry');
+        const apiUrl = (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
+          ? 'https://solar-smart-cold-storage-9qgo.onrender.com/api/telemetry'
+          : '/api/telemetry';
+        const res = await fetch(apiUrl);
         if (res.ok) {
           const data = await res.json();
           if (isMounted) {
