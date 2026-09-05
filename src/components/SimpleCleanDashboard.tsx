@@ -103,18 +103,18 @@ export const SimpleCleanDashboard: React.FC = () => {
   const isTe = language === 'te';
   const isHi = language === 'hi';
 
-  // Calculate Freshness Score based on current readings
-  const vocPenalty = Math.max(0, (currentVoc - 35) * 0.7);
-  const alcoholPenalty = Math.max(0, (currentAlcohol - 20) * 1.2);
-  const tempExcess = Math.max(0, currentTemp - selectedCrop.maxTemp);
-  const tempPenalty = tempExcess * 4;
-  const rawScore = Math.round(100 - vocPenalty - alcoholPenalty - tempPenalty);
-  const calculatedFreshness = Math.max(25, Math.min(99, rawScore));
+  // Exact ESP32 Hardware Calculation Formula (identical to esp32_cold_storage.ino):
+  // int freshnessScore = 95 - (vocPpm > 40 ? (vocPpm - 40) * 0.5 : 0) - (alcoholPpm > 15 ? (alcoholPpm - 15) * 1.0 : 0);
+  const esp32Formula = Math.round(
+    95 -
+    (currentVoc > 40 ? (currentVoc - 40) * 0.5 : 0) -
+    (currentAlcohol > 15 ? (currentAlcohol - 15) * 1.0 : 0)
+  );
 
-  // If live hardware sends its exact freshness score, use it directly so physical LCD and Web Dashboard match 100%!
+  // If live hardware sends its exact freshness score, use it directly; otherwise compute with the exact same ESP32 hardware formula
   const freshnessScore = (isLive && telemetry?.freshness !== undefined)
     ? Math.round(Number(telemetry.freshness))
-    : calculatedFreshness;
+    : Math.max(25, Math.min(99, esp32Formula));
 
   // Determine Overall System Status & Farmer Statuses
   let freshnessStatus = 'FRESH ✓';
