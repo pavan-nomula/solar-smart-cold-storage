@@ -17,6 +17,7 @@
 */
 
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
@@ -30,7 +31,7 @@
 const char* ssid = "YOUR_WIFI_NAME";            
 const char* password = "YOUR_WIFI_PASSWORD";    
 
-// Live Render Cloud API Endpoint for Telemetry
+// Live Render Cloud API Endpoint for Telemetry (HTTPS)
 const char* serverUrl = "https://solar-smart-cold-storage-9qgo.onrender.com/api/telemetry";
 
 // -----------------------------------------------------------------------------
@@ -50,11 +51,14 @@ DHT dht(DHTPIN, DHTTYPE);
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 unsigned long lastSendTime = 0;
-const unsigned long sendInterval = 4000; // Transmit telemetry to cloud every 4 seconds
+const unsigned long sendInterval = 3000; // Transmit telemetry to cloud every 3 seconds
 
 void setup() {
   Serial.begin(115200);
-  delay(500);
+  delay(1000);
+  Serial.println("\n=======================================================");
+  Serial.println("  SOLAR SMART MINI COLD STORAGE - SYSTEM STARTING");
+  Serial.println("=======================================================");
 
   // Initialize Control Pins
   pinMode(PELTIER_RELAY, OUTPUT);
@@ -73,9 +77,13 @@ void setup() {
   lcd.print("Connecting WiFi.");
 
   // Connect to Wi-Fi Network
+  Serial.print("Connecting to Wi-Fi network: ");
+  Serial.println(ssid);
+  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
+
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+  while (WiFi.status() != WL_CONNECTED && attempts < 25) {
     delay(500);
     Serial.print(".");
     attempts++;
@@ -83,17 +91,19 @@ void setup() {
 
   lcd.clear();
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi Connected! IP Address: " + WiFi.localIP().toString());
+    Serial.println("\n[Wi-Fi Status] SUCCESS: Connected to Wi-Fi!");
+    Serial.print("[Wi-Fi Status] ESP32 Assigned IP Address: ");
+    Serial.println(WiFi.localIP());
     lcd.setCursor(0, 0);
     lcd.print("WiFi Connected!");
     lcd.setCursor(0, 1);
     lcd.print(WiFi.localIP().toString());
   } else {
-    Serial.println("\nWiFi Offline. Running in autonomous local mode.");
+    Serial.println("\n[Wi-Fi Status] FAILED: Could not connect to Wi-Fi. Check SSID and Password.");
     lcd.setCursor(0, 0);
-    lcd.print("WiFi Offline");
+    lcd.print("WiFi Failed");
     lcd.setCursor(0, 1);
-    lcd.print("Local Mode OK");
+    lcd.print("Local Mode Only");
   }
   delay(2000);
   lcd.clear();
@@ -106,6 +116,7 @@ void loop() {
 
   // Sensor fail-safe check
   if (isnan(temperature) || isnan(humidity)) {
+    Serial.println("[Sensor Warning] DHT11 read failed, using safe fallback reading.");
     temperature = 8.4;
     humidity = 86.0;
   }
@@ -151,38 +162,58 @@ void loop() {
   const char* statusStr = (freshnessScore >= 80) ? "FRESH" : (freshnessScore >= 60 ? "WARN " : "ALERT");
   lcd.printf("FRESH:%2d%% STA:%s", freshnessScore, statusStr);
 
-  // 8. Transmit Live Sensor Data to Render Cloud Dashboard (HTTP POST)
+  // Print summary to Serial Monitor
+  Serial.printf("[Sensors] Temp: %.1f C | Hum: %.0f %% | VOC: %.0f ppm | Alcohol: %.0f ppm | Batt: %d %% (%.1fV) | Solar: %.0f W\n",
+                temperature, humidity, vocPpm, alcoholPpm, batteryPercent, batteryVoltage, solarWatts);
+
+  // 8. Transmit Live Sensor Data to Render Cloud Dashboard (HTTPS POST)
   if (millis() - lastSendTime > sendInterval) {
     lastSendTime = millis();
 
     if (WiFi.status() == WL_CONNECTED) {
+      // Create Secure Wi-Fi Client to handle HTTPS connection to Render
+      WiFiClientSecure client;
+      client.setInsecure(); // Bypass SSL Certificate verification for seamless connection
+      client.setTimeout(10); // 10 seconds connection timeout
+
       HTTPClient http;
-      http.begin(serverUrl);
-      http.addHeader("Content-Type", "application/json");
+      if (http.begin(client, serverUrl)) {
+        http.addHeader("Content-Type", "application/json");
 
-      // Construct JSON payload
-      StaticJsonDocument<300> doc;
-      doc["temperature"] = temperature;
-      doc["humidity"] = humidity;
-      doc["battery"] = batteryPercent;
-      doc["batteryVoltage"] = batteryVoltage;
-      doc["solarPower"] = solarWatts;
-      doc["coolingActive"] = coolingActive;
-      doc["coolingPower"] = coolingActive ? 65.0 : 0.0;
-      doc["voc"] = vocPpm;
-      doc["alcohol"] = alcoholPpm;
-      doc["doorOpen"] = doorOpen;
+        // Construct JSON payload
+        StaticJsonDocument<300> doc;
+        doc["temperature"] = temperature;
+        doc["humidity"] = humidity;
+        doc["battery"] = batteryPercent;
+        doc["batteryVoltage"] = batteryVoltage;
+        doc["solarPower"] = solarWatts;
+        doc["coolingActive"] = coolingActive;
+        doc["coolingPower"] = coolingActive ? 65.0 : 0.0;
+        doc["voc"] = vocPpm;
+        doc["alcohol"] = alcoholPpm;
+        doc["doorOpen"] = doorOpen;
 
-      String jsonPayload;
-      serializeJson(doc, jsonPayload);
+        String jsonPayload;
+        serializeJson(doc, jsonPayload);
 
-      int httpResponseCode = http.POST(jsonPayload);
-      if (httpResponseCode > 0) {
-        Serial.printf("[Cloud Sync] HTTP Response: %d\n", httpResponseCode);
+        Serial.print("[Cloud Transmit] POST to Render: ");
+        Serial.println(jsonPayload);
+
+        int httpResponseCode = http.POST(jsonPayload);
+        if (httpResponseCode > 0) {
+          Serial.printf("[Cloud Transmit SUCCESS] Render Server Response Code: %d (Data Delivered!)\n", httpResponseCode);
+          String response = http.getString();
+          Serial.print("[Cloud Server Reply] ");
+          Serial.println(response);
+        } else {
+          Serial.printf("[Cloud Transmit ERROR] Code: %d - Reason: %s\n", httpResponseCode, http.errorToString(httpResponseCode).c_str());
+        }
+        http.end();
       } else {
-        Serial.printf("[Cloud Sync Error] %s\n", http.errorToString(httpResponseCode).c_str());
+        Serial.println("[Cloud Transmit ERROR] Unable to initiate HTTPS client connection.");
       }
-      http.end();
+    } else {
+      Serial.println("[Cloud Transmit SKIP] Wi-Fi not connected yet. Waiting for reconnection...");
     }
   }
 

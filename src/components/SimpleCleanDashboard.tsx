@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useStorage } from '../context/StorageContext';
 import { CROPS } from '../data/crops';
 import {
@@ -21,7 +21,8 @@ import {
   RefreshCw,
   Gauge,
   Activity,
-  Wind
+  Wind,
+  Wifi
 } from 'lucide-react';
 
 export const SimpleCleanDashboard: React.FC = () => {
@@ -41,22 +42,68 @@ export const SimpleCleanDashboard: React.FC = () => {
     setSelectedCropId,
     language,
     setLanguage,
-    applySimulation,
-    isEsp32Connected
+    applySimulation
   } = useStorage();
 
   const [showTechnical, setShowTechnical] = useState(false);
   const [lcdScreenIndex, setLcdScreenIndex] = useState<1 | 2>(1);
 
+  // Live Telemetry from Render /api/telemetry
+  const [telemetry, setTelemetry] = useState<any>(null);
+  const [secondsAgo, setSecondsAgo] = useState<number | null>(null);
+  const [testSending, setTestSending] = useState(false);
+
+  // Poll /api/telemetry every 1.5 seconds
+  useEffect(() => {
+    let isMounted = true;
+    const fetchTelemetry = async () => {
+      try {
+        const res = await fetch('/api/telemetry');
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted) {
+            setTelemetry(data);
+            if (data.lastUpdated) {
+              const diff = Math.max(0, Math.round((Date.now() - data.lastUpdated) / 1000));
+              setSecondsAgo(diff);
+            }
+          }
+        }
+      } catch (err) {
+        // Offline or dev mode
+      }
+    };
+
+    fetchTelemetry();
+    const interval = setInterval(fetchTelemetry, 1500);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const isLive = Boolean(telemetry?.isLiveHardware);
+
+  // Active readings: Use real hardware data if available, otherwise context mock
+  const currentTemp = (isLive && telemetry?.temperature !== undefined) ? Number(telemetry.temperature) : temperature;
+  const currentHum = (isLive && telemetry?.humidity !== undefined) ? Number(telemetry.humidity) : humidity;
+  const currentBatt = (isLive && telemetry?.battery !== undefined) ? Number(telemetry.battery) : battery;
+  const currentBattVolt = (isLive && telemetry?.batteryVoltage !== undefined) ? Number(telemetry.batteryVoltage) : batteryVoltage;
+  const currentSolar = (isLive && telemetry?.solarPower !== undefined) ? Number(telemetry.solarPower) : solarPower;
+  const currentCoolingActive = (isLive && telemetry?.coolingActive !== undefined) ? Boolean(telemetry.coolingActive) : coolingActive;
+  const currentCoolingPower = (isLive && telemetry?.coolingPower !== undefined) ? Number(telemetry.coolingPower) : coolingPower;
+  const currentVoc = (isLive && telemetry?.voc !== undefined) ? Number(telemetry.voc) : voc;
+  const currentAlcohol = (isLive && telemetry?.alcohol !== undefined) ? Number(telemetry.alcohol) : alcohol;
+  const currentDoorOpen = (isLive && telemetry?.doorOpen !== undefined) ? Boolean(telemetry.doorOpen) : doorOpen;
+
   // Quick bilingual dictionary for effortless farmer comprehension
   const isTe = language === 'te';
   const isHi = language === 'hi';
 
-  // Calculate Freshness Score based on temp, humidity, VOC and Alcohol
-  // MQ-135 baseline ~ 20-35, MQ-3 baseline ~ 5-15
-  const vocPenalty = Math.max(0, (voc - 35) * 0.7);
-  const alcoholPenalty = Math.max(0, (alcohol - 20) * 1.2);
-  const tempExcess = Math.max(0, temperature - selectedCrop.maxTemp);
+  // Calculate Freshness Score based on current readings
+  const vocPenalty = Math.max(0, (currentVoc - 35) * 0.7);
+  const alcoholPenalty = Math.max(0, (currentAlcohol - 20) * 1.2);
+  const tempExcess = Math.max(0, currentTemp - selectedCrop.maxTemp);
   const tempPenalty = tempExcess * 4;
   const rawScore = Math.round(100 - vocPenalty - alcoholPenalty - tempPenalty);
   const freshnessScore = Math.max(25, Math.min(99, rawScore));
@@ -97,7 +144,7 @@ export const SimpleCleanDashboard: React.FC = () => {
   let tempNoteTe = 'గది తగినంత చల్లగా ఉండి కూరగాయలను కాపాడుతోంది.';
   let tempNoteHi = 'कमरे में उचित ठंडक बनी हुई है।';
 
-  if (temperature > selectedCrop.maxTemp + 3) {
+  if (currentTemp > selectedCrop.maxTemp + 3) {
     tempStatus = 'TOO WARM ✕';
     tempStatusTe = 'ఎక్కువ వేడి ✕';
     tempStatusHi = 'बहुत गर्म ✕';
@@ -105,7 +152,7 @@ export const SimpleCleanDashboard: React.FC = () => {
     tempNote = 'Temperature too high! Check door seal and Peltier cooler.';
     tempNoteTe = 'ఉష్ణోగ్రత చాలా ఎక్కువగా ఉంది! తలుపు మరియు కూలర్ తనిఖీ చేయండి.';
     tempNoteHi = 'तापमान बहुत अधिक है! दरवाजा और कूलर जांचें।';
-  } else if (temperature > selectedCrop.maxTemp) {
+  } else if (currentTemp > selectedCrop.maxTemp) {
     tempStatus = 'WARMING UP ⚠';
     tempStatusTe = 'వేడి పెరుగుతోంది ⚠';
     tempStatusHi = 'तापमान बढ़ रहा है ⚠';
@@ -124,7 +171,7 @@ export const SimpleCleanDashboard: React.FC = () => {
   let humNoteTe = 'సరిపడా తేమ శాతం వల్ల కూరగాయలు వాడిపోకుండా ఉంటాయి.';
   let humNoteHi = 'पर्याप्त नमी से सब्जियां ताज़ा रहती हैं और सूखती नहीं हैं।';
 
-  if (humidity < selectedCrop.minHumidity) {
+  if (currentHum < selectedCrop.minHumidity) {
     humStatus = 'TOO DRY ⚠';
     humStatusTe = 'తేమ తక్కువ ⚠';
     humStatusHi = 'कम नमी ⚠';
@@ -132,7 +179,7 @@ export const SimpleCleanDashboard: React.FC = () => {
     humNote = 'Air is dry. Produce may lose weight or wither.';
     humNoteTe = 'గాలి పొడిగా ఉంది. కూరగాయలు తేమ కోల్పోయి వాడిపోవచ్చు.';
     humNoteHi = 'नमी कम है। सब्जियां सूख सकती हैं।';
-  } else if (humidity > selectedCrop.maxHumidity + 5) {
+  } else if (currentHum > selectedCrop.maxHumidity + 5) {
     humStatus = 'VERY HIGH ⚠';
     humStatusTe = 'తేమ ఎక్కువ ⚠';
     humStatusHi = 'अधिक नमी ⚠';
@@ -151,7 +198,7 @@ export const SimpleCleanDashboard: React.FC = () => {
   let battNoteTe = 'రాత్రి వేళ కూడా కూలింగ్ ఆగకుండా నడవడానికి బ్యాకప్ సిద్ధం.';
   let battNoteHi = 'रात में बिना रुकावट ठंडक के लिए पर्याप्त बैटरी उपलब्ध है।';
 
-  if (battery < 25) {
+  if (currentBatt < 25) {
     battStatus = 'LOW BATTERY 🔴';
     battStatusTe = 'బ్యాటరీ తక్కువ 🔴';
     battStatusHi = 'कम बैटरी 🔴';
@@ -159,7 +206,7 @@ export const SimpleCleanDashboard: React.FC = () => {
     battNote = 'Battery low! Allow solar charging before heavy cooling.';
     battNoteTe = 'బ్యాటరీ చార్జ్ తక్కువగా ఉంది! సోలార్ ద్వారా చార్జ్ అవ్వనివ్వండి.';
     battNoteHi = 'बैटरी बहुत कम है! सौर ऊर्जा से चार्ज होने दें।';
-  } else if (battery < 50) {
+  } else if (currentBatt < 50) {
     battStatus = 'MEDIUM ⚡';
     battStatusTe = 'మధ్యస్థం ⚡';
     battStatusHi = 'मध्यम स्तर ⚡';
@@ -170,7 +217,7 @@ export const SimpleCleanDashboard: React.FC = () => {
   }
 
   // Solar Status
-  const isSolarWorking = solarPower > 25;
+  const isSolarWorking = currentSolar > 25;
   const solarStatus = isSolarWorking ? 'WORKING ✓' : 'STANDBY (NIGHT)';
   const solarStatusTe = isSolarWorking ? 'పనిచేస్తోంది ✓' : 'స్టాండ్‌బై (రాత్రి)';
   const solarStatusHi = isSolarWorking ? 'काम कर रहा है ✓' : 'स्टैंडबाय (रात)';
@@ -186,7 +233,7 @@ export const SimpleCleanDashboard: React.FC = () => {
     : 'धूप नहीं है। सिस्टम बैटरी बैकअप पर चल रहा है।';
 
   // Peltier Cooling Status
-  const isCoolingActive = coolingActive;
+  const isCoolingActive = currentCoolingActive;
   const coolingStatus = isCoolingActive ? 'ACTIVE & COOLING ❄️' : 'OFF / IDLE';
   const coolingStatusTe = isCoolingActive ? 'కూలింగ్ ఆన్ ❄️' : 'ఆఫ్ లో ఉంది';
   const coolingStatusHi = isCoolingActive ? 'कूलिंग चालू ❄️' : 'बंद है';
@@ -207,7 +254,41 @@ export const SimpleCleanDashboard: React.FC = () => {
     tempLevel !== 'good' ||
     humLevel !== 'good' ||
     battLevel === 'critical' ||
-    doorOpen;
+    currentDoorOpen;
+
+  // Helper to test send hardware packet directly from UI
+  const handleTestPost = async () => {
+    setTestSending(true);
+    try {
+      await fetch('/api/telemetry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          temperature: 7.6,
+          humidity: 88.0,
+          battery: 85.0,
+          batteryVoltage: 13.1,
+          solarPower: 138.0,
+          coolingActive: true,
+          coolingPower: 65.0,
+          voc: 24.0,
+          alcohol: 8.0,
+          doorOpen: false
+        })
+      });
+      // Refresh telemetry
+      const res = await fetch('/api/telemetry');
+      if (res.ok) {
+        const data = await res.json();
+        setTelemetry(data);
+        setSecondsAgo(0);
+      }
+    } catch (err) {
+      console.error('Test post failed:', err);
+    } finally {
+      setTestSending(false);
+    }
+  };
 
   return (
     <div className="simple-dashboard">
@@ -227,9 +308,21 @@ export const SimpleCleanDashboard: React.FC = () => {
                     ? 'सोलर स्मार्ट मिनी कोल्ड स्टोरेज'
                     : 'Solar Smart Mini Cold Storage'}
                 </h1>
-                <span className="live-pill">
-                  <span className="live-dot"></span>
-                  {isTe ? 'ESP32 ఆన్‌లైన్' : isHi ? 'ESP32 ऑनलाइन' : 'ESP32 Live'}
+                
+                {/* Live Hardware Telemetry Connection Badge */}
+                <span className={`live-pill ${isLive ? 'live-active' : 'live-waiting'}`}>
+                  <span className={`live-dot ${isLive ? 'pulse-green' : 'pulse-amber'}`}></span>
+                  {isLive
+                    ? isTe
+                      ? `🟢 ESP32 లైవ్ హార్డ్‌వేర్ (${secondsAgo !== null ? `${secondsAgo}s క్రితం` : 'Live'})`
+                      : isHi
+                      ? `🟢 ESP32 लाइव हार्डवेयर (${secondsAgo !== null ? `${secondsAgo}s पहले` : 'Live'})`
+                      : `🟢 ESP32 Live Hardware (${secondsAgo !== null ? `${secondsAgo}s ago` : 'Live'})`
+                    : isTe
+                    ? '🟡 సిమ్యులేషన్ మోడ్ (ESP32 కోసం వేచిచూస్తోంది)'
+                    : isHi
+                    ? '🟡 सिमुलेशन मोड (ESP32 की प्रतीक्षा)'
+                    : '🟡 Simulation Mode (Waiting for ESP32...)'}
                 </span>
               </div>
               <p className="brand-subtitle">
@@ -337,7 +430,7 @@ export const SimpleCleanDashboard: React.FC = () => {
                         : isHi
                         ? '⚠️ तापमान चेतावनी: कमरा गर्म हो रहा है'
                         : '⚠️ TEMPERATURE WARNING: Chamber Warming Up'
-                      : doorOpen
+                      : currentDoorOpen
                       ? isTe
                         ? '⚠️ నిల్వ గది తలుపు తెరిచి ఉంది'
                         : isHi
@@ -365,8 +458,8 @@ export const SimpleCleanDashboard: React.FC = () => {
                       ? 'ఉష్ణోగ్రత నిర్దేశించిన పరిమితి కంటే ఎక్కువైంది. పెల్టియర్ కూలింగ్ నడుస్తోంది.'
                       : isHi
                       ? 'तापमान सीमा से अधिक हो गया है। पेल्टियर कूलिंग चालू है।'
-                      : `Chamber temperature is at ${temperature.toFixed(1)}°C, exceeding target limit of ${selectedCrop.maxTemp}°C.`
-                    : doorOpen
+                      : `Chamber temperature is at ${currentTemp.toFixed(1)}°C, exceeding target limit of ${selectedCrop.maxTemp}°C.`
+                    : currentDoorOpen
                     ? isTe
                       ? 'చల్లటి గాలి బయటకు పోకుండా తలుపును వెంటనే మూసివేయండి.'
                       : isHi
@@ -393,7 +486,7 @@ export const SimpleCleanDashboard: React.FC = () => {
                         : isHi
                         ? 'दरवाजा कसकर बंद रखें। नया गर्म माल एक साथ अंदर न रखें।'
                         : 'Ensure the door seal is completely airtight and circulation vents are clear.'
-                      : doorOpen
+                      : currentDoorOpen
                       ? isTe
                         ? 'కోల్డ్ స్టోరేజ్ తలుపును వెంటనే మూసివేయండి.'
                         : isHi
@@ -428,10 +521,10 @@ export const SimpleCleanDashboard: React.FC = () => {
                 </div>
                 <p className="banner-description">
                   {isTe
-                    ? `ఉష్ణోగ్రత (${temperature.toFixed(1)}°C), తేమ (${humidity}%) మరియు గ్యాస్ రీడింగ్స్ అన్నీ ${selectedCrop.name} కోసం ఆదర్శవంతంగా ఉన్నాయి. ఎటువంటి ఆందోళన అవసరం లేదు.`
+                    ? `ఉష్ణోగ్రత (${currentTemp.toFixed(1)}°C), తేమ (${Math.round(currentHum)}%) మరియు గ్యాస్ రీడింగ్స్ అన్నీ ${selectedCrop.name} కోసం ఆదర్శవంతంగా ఉన్నాయి. ఎటువంటి ఆందోళన అవసరం లేదు.`
                     : isHi
-                    ? `तापमान (${temperature.toFixed(1)}°C) और नमी (${humidity}%) दोनों ${selectedCrop.name} के लिए एकदम सही हैं। कोई समस्या नहीं है।`
-                    : `Chamber temperature (${temperature.toFixed(1)}°C) and humidity (${humidity}%) are within ideal range for ${selectedCrop.name}. Gas sensors detect clean air.`}
+                    ? `तापमान (${currentTemp.toFixed(1)}°C) और नमी (${Math.round(currentHum)}%) दोनों ${selectedCrop.name} के लिए एकदम सही हैं। कोई समस्या नहीं है।`
+                    : `Chamber temperature (${currentTemp.toFixed(1)}°C) and humidity (${Math.round(currentHum)}%) are within ideal range for ${selectedCrop.name}. Gas sensors detect clean air.`}
                 </p>
               </div>
             </div>
@@ -484,10 +577,10 @@ export const SimpleCleanDashboard: React.FC = () => {
 
               <div className="card-sub-pills">
                 <span className="sub-pill">
-                  💨 MQ-135 (VOC): <strong>{voc} ppm</strong>
+                  💨 MQ-135 (VOC): <strong>{Math.round(currentVoc)} ppm</strong>
                 </span>
                 <span className="sub-pill">
-                  🧪 MQ-3 (Alcohol): <strong>{alcohol} ppm</strong>
+                  🧪 MQ-3 (Alcohol): <strong>{Math.round(currentAlcohol)} ppm</strong>
                 </span>
               </div>
             </div>
@@ -510,7 +603,7 @@ export const SimpleCleanDashboard: React.FC = () => {
               </div>
 
               <div className="card-primary-value">
-                <span className="value-num">{temperature.toFixed(1)}°C</span>
+                <span className="value-num">{currentTemp.toFixed(1)}°C</span>
                 <span className="value-sub">
                   {isTe ? `లక్ష్యం: ${selectedCrop.minTemp}°-${selectedCrop.maxTemp}°C` : `Target: ${selectedCrop.minTemp}°-${selectedCrop.maxTemp}°C`}
                 </span>
@@ -525,7 +618,7 @@ export const SimpleCleanDashboard: React.FC = () => {
                   {isTe ? 'ఆదర్శ స్థాయి:' : 'Ideal Target:'} <strong>{selectedCrop.idealTemp}°C</strong>
                 </span>
                 <span className="sub-pill">
-                  {isTe ? 'కూలింగ్ మోడ్:' : 'Cooling State:'} <strong>{coolingActive ? 'ACTIVE ❄️' : 'IDLE'}</strong>
+                  {isTe ? 'కూలింగ్ మోడ్:' : 'Cooling State:'} <strong>{currentCoolingActive ? 'ACTIVE ❄️' : 'IDLE'}</strong>
                 </span>
               </div>
             </div>
@@ -548,7 +641,7 @@ export const SimpleCleanDashboard: React.FC = () => {
               </div>
 
               <div className="card-primary-value">
-                <span className="value-num">{Math.round(humidity)}%</span>
+                <span className="value-num">{Math.round(currentHum)}%</span>
                 <span className="value-sub">
                   {isTe ? `లక్ష్యం: ${selectedCrop.minHumidity}% - ${selectedCrop.maxHumidity}%` : `Target: ${selectedCrop.minHumidity}% - ${selectedCrop.maxHumidity}%`}
                 </span>
@@ -583,9 +676,9 @@ export const SimpleCleanDashboard: React.FC = () => {
               </div>
 
               <div className="card-primary-value">
-                <span className="value-num">{Math.round(battery)}%</span>
+                <span className="value-num">{Math.round(currentBatt)}%</span>
                 <span className="value-sub">
-                  {batteryVoltage.toFixed(1)}V DC Reserve
+                  {currentBattVolt.toFixed(1)}V DC Reserve
                 </span>
               </div>
 
@@ -595,10 +688,10 @@ export const SimpleCleanDashboard: React.FC = () => {
 
               <div className="card-sub-pills">
                 <span className="sub-pill">
-                  {isTe ? 'రాత్రి బ్యాకప్:' : 'Backup Status:'} <strong>{battery > 50 ? 'READY ✓' : 'LIMITED'}</strong>
+                  {isTe ? 'రాత్రి బ్యాకప్:' : 'Backup Status:'} <strong>{currentBatt > 50 ? 'READY ✓' : 'LIMITED'}</strong>
                 </span>
                 <span className="sub-pill">
-                  {isTe ? 'వోల్టేజ్:' : 'Voltage:'} <strong>{batteryVoltage.toFixed(1)}V</strong>
+                  {isTe ? 'వోల్టేజ్:' : 'Voltage:'} <strong>{currentBattVolt.toFixed(1)}V</strong>
                 </span>
               </div>
             </div>
@@ -621,7 +714,7 @@ export const SimpleCleanDashboard: React.FC = () => {
               </div>
 
               <div className="card-primary-value">
-                <span className="value-num">{Math.round(solarPower)} W</span>
+                <span className="value-num">{Math.round(currentSolar)} W</span>
                 <span className="value-sub">
                   {isTe ? 'సూర్యకాంతి నుండి శక్తి' : isHi ? 'धूप से ऊर्जा' : 'Clean Solar Output'}
                 </span>
@@ -659,7 +752,7 @@ export const SimpleCleanDashboard: React.FC = () => {
               </div>
 
               <div className="card-primary-value">
-                <span className="value-num">{coolingActive ? `${Math.round(coolingPower)} W` : '0 W'}</span>
+                <span className="value-num">{currentCoolingActive ? `${Math.round(currentCoolingPower)} W` : '0 W'}</span>
                 <span className="value-sub">
                   {isTe ? 'కూలింగ్ పవర్' : 'Peltier Power'}
                 </span>
@@ -728,8 +821,8 @@ export const SimpleCleanDashboard: React.FC = () => {
               {lcdScreenIndex === 1 ? (
                 <>
                   <div className="lcd-row">
-                    <span className="lcd-char">TEMP: {temperature.toFixed(1).padStart(4, ' ')}°C</span>
-                    <span className="lcd-char">HUM : {Math.round(humidity).toString().padStart(2, ' ')}%</span>
+                    <span className="lcd-char">TEMP: {currentTemp.toFixed(1).padStart(4, ' ')}°C</span>
+                    <span className="lcd-char">HUM : {Math.round(currentHum).toString().padStart(2, ' ')}%</span>
                   </div>
                   <div className="lcd-row">
                     <span className="lcd-char">FRESH: {freshnessScore}%</span>
@@ -741,11 +834,11 @@ export const SimpleCleanDashboard: React.FC = () => {
               ) : (
                 <>
                   <div className="lcd-row">
-                    <span className="lcd-char">SOLAR: {Math.round(solarPower).toString().padStart(3, ' ')}W</span>
-                    <span className="lcd-char">BATT: {Math.round(battery).toString().padStart(2, ' ')}%</span>
+                    <span className="lcd-char">SOLAR: {Math.round(currentSolar).toString().padStart(3, ' ')}W</span>
+                    <span className="lcd-char">BATT: {Math.round(currentBatt).toString().padStart(2, ' ')}%</span>
                   </div>
                   <div className="lcd-row">
-                    <span className="lcd-char">COOL : {coolingActive ? 'ACTIVE' : 'OFF   '}</span>
+                    <span className="lcd-char">COOL : {currentCoolingActive ? 'ACTIVE' : 'OFF   '}</span>
                     <span className="lcd-char">ESP32: OK</span>
                   </div>
                 </>
@@ -754,7 +847,7 @@ export const SimpleCleanDashboard: React.FC = () => {
           </div>
         </section>
 
-        {/* 6. EXPANDABLE TECHNICAL & HARDWARE DETAILS (FOR VIVA / JURY / INSPECTION) */}
+        {/* 6. EXPANDABLE TECHNICAL & HARDWARE DETAILS */}
         <section className="tech-toggle-section">
           <button
             className="tech-accordion-btn"
@@ -787,78 +880,70 @@ export const SimpleCleanDashboard: React.FC = () => {
 
           {showTechnical && (
             <div className="tech-details-body">
-              {/* Architecture Explanation */}
               <div className="tech-grid">
-                {/* Microcontroller & Telemetry */}
                 <div className="tech-detail-card">
                   <div className="tech-card-header">
                     <Radio size={18} className="tech-card-icon" />
                     <h4>ESP32 Microcontroller</h4>
                   </div>
                   <ul className="tech-card-list">
-                    <li><strong>Role:</strong> Central IoT Gateway, Sensor Polling & Wi-Fi Transmission.</li>
+                    <li><strong>Role:</strong> Central IoT Gateway, Sensor Polling & Cloud Transmission.</li>
+                    <li><strong>Live Status:</strong> {isLive ? '🟢 Receiving Live Packets via HTTPS' : '🟡 Awaiting ESP32 connection'}.</li>
                     <li><strong>Display:</strong> 16×2 I2C LCD (PCF8574 interface at 0x27).</li>
-                    <li><strong>Connection:</strong> Wi-Fi 802.11 b/g/n (Web Dashboard Sync).</li>
-                    <li><strong>Peltier Safety:</strong> Separate isolated relay/MOSFET driver so ESP32 is protected from high current.</li>
+                    <li><strong>Connection:</strong> Wi-Fi 802.11 b/g/n &rarr; Render Cloud.</li>
                   </ul>
                 </div>
 
-                {/* Multi-Gas Sensing Matrix */}
                 <div className="tech-detail-card">
                   <div className="tech-card-header">
                     <Wind size={18} className="tech-card-icon" />
-                    <h4>Intelligent Freshness Matrix (Multi-Gas)</h4>
+                    <h4>Intelligent Freshness Matrix</h4>
                   </div>
                   <ul className="tech-card-list">
                     <li>
-                      <strong>MQ-135 Sensor:</strong> Detects broad VOCs, Ammonia (NH₃), and decomposing sulfides. Current: <strong>{voc} ppm</strong>.
+                      <strong>MQ-135 Sensor:</strong> Detects VOCs & decomposing gases. Reading: <strong>{Math.round(currentVoc)} ppm</strong>.
                     </li>
                     <li>
-                      <strong>MQ-3 Sensor:</strong> Highly sensitive to Ethanol & alcohol fermentation gasses released when plant tissues soften. Current: <strong>{alcohol} ppm</strong>.
+                      <strong>MQ-3 Sensor:</strong> Alcohol / fermentation detection. Reading: <strong>{Math.round(currentAlcohol)} ppm</strong>.
                     </li>
                     <li>
-                      <strong>Freshness Algorithm:</strong> Combines Gas levels + Temperature + Humidity + Storage Duration ({selectedCrop.name}) to calculate real deterioration risk before visible mold appears.
+                      <strong>Freshness Algorithm:</strong> Combines Gas + Temp + Humidity to calculate deterioration risk for {selectedCrop.name}.
                     </li>
                   </ul>
                 </div>
 
-                {/* Energy & Cooling Circuit */}
                 <div className="tech-detail-card">
                   <div className="tech-card-header">
                     <Zap size={18} className="tech-card-icon" />
-                    <h4>Solar Energy & Peltier Subsystem</h4>
+                    <h4>Solar & Peltier Subsystem</h4>
                   </div>
                   <ul className="tech-card-list">
                     <li>
-                      <strong>Energy Flow:</strong> Solar Panel (150W) ➔ Charge Controller ➔ 12V 35Ah Deep-Cycle Battery ➔ Peltier Unit.
+                      <strong>Energy Flow:</strong> Solar Panel (150W) ➔ Charge Controller ➔ 12V Battery ({Math.round(currentBatt)}%) ➔ Peltier Cooler ({currentCoolingActive ? `${Math.round(currentCoolingPower)}W` : '0W'}).
                     </li>
                     <li>
-                      <strong>Cooling Mechanism:</strong> Solid-state Peltier Thermoelectric (TEC1-12706) with aluminum cold block & external heat sink with fan.
+                      <strong>Cooling Mechanism:</strong> Solid-state Peltier Thermoelectric (TEC1-12706) with aluminum heat sinks.
                     </li>
                     <li>
-                      <strong>Environmental Benefit:</strong> Zero compressors, zero refrigerants (No CFCs/HFCs/Freon), completely silent.
-                    </li>
-                    <li>
-                      <strong>Power Autonomy:</strong> Fully self-sustaining on solar with automatic battery fallback during night.
+                      <strong>Eco Advantage:</strong> No CFCs/HFCs, zero refrigerants, completely silent.
                     </li>
                   </ul>
                 </div>
 
-                {/* Chamber Insulation & Physical Sensor */}
                 <div className="tech-detail-card">
                   <div className="tech-card-header">
                     <DoorClosed size={18} className="tech-card-icon" />
-                    <h4>Insulation Chamber & Door Sensor</h4>
+                    <h4>Insulation Chamber & Door</h4>
                   </div>
                   <ul className="tech-card-list">
                     <li>
-                      <strong>Chamber Construction:</strong> Double-wall PUF / expanded polystyrene insulated container.
+                      <strong>Chamber Construction:</strong> Double-wall PUF insulated chamber.
                     </li>
                     <li>
-                      <strong>Door Switch:</strong> Magnetic Reed Sensor — Current Status: <strong>{doorOpen ? 'OPEN ⚠️' : 'CLOSED ✓'}</strong>.
+                      <strong>Door Sensor:</strong> Status: <strong>{currentDoorOpen ? 'OPEN ⚠️' : 'CLOSED ✓'}</strong>.
                     </li>
                     <li>
-                      <strong>Climate Probe:</strong> DHT11 Temperature & Relative Humidity digital sensor.
+                      <strong>Climate Probe:</strong> DHT11 Temperature & Relative Humidity.
                     </li>
                   </ul>
                 </div>
@@ -868,13 +953,13 @@ export const SimpleCleanDashboard: React.FC = () => {
         </section>
       </main>
 
-      {/* 7. QUICK DEMO SIMULATION BAR (SIMPLE 1-CLICK FOR PRESENTATION) */}
+      {/* 7. QUICK DEMO SIMULATION BAR */}
       <footer className="demo-bar-fixed">
         <div className="demo-bar-inner">
           <div className="demo-bar-label">
             <Activity size={16} className="demo-pulse" />
             <span className="demo-text">
-              {isTe ? 'ప్రెజెంటేషన్ / డెమో టెస్టింగ్:' : 'Presentation Demo Simulation:'}
+              {isTe ? 'డెమో టెస్టింగ్:' : 'Presentation Simulation:'}
             </span>
           </div>
 
@@ -884,35 +969,43 @@ export const SimpleCleanDashboard: React.FC = () => {
               onClick={() => applySimulation('normal')}
               title="Reset all sensors to safe, fresh conditions"
             >
-              🟢 {isTe ? 'సాధారణం (తాజాగా)' : 'Normal (Fresh)'}
+              🟢 {isTe ? 'సాధారణం' : 'Normal'}
             </button>
             <button
               className="demo-btn warning"
               onClick={() => applySimulation('freshness_warning')}
               title="Simulate gas build-up from aging produce"
             >
-              ⚠️ {isTe ? 'గ్యాస్ స్పైక్ (పాడయ్యే ప్రమాదం)' : 'Spoilage Alert (Gas Spike)'}
+              ⚠️ {isTe ? 'గ్యాస్ స్పైక్' : 'Spoilage Spike'}
             </button>
             <button
               className="demo-btn alert"
               onClick={() => applySimulation('temp_high')}
               title="Simulate temperature rise"
             >
-              🌡️ {isTe ? 'ఎక్కువ వేడి' : 'High Temp Alert'}
+              🌡️ {isTe ? 'ఎక్కువ వేడి' : 'High Temp'}
             </button>
             <button
               className="demo-btn battery"
               onClick={() => applySimulation('battery_backup')}
               title="Simulate solar disconnection / low battery"
             >
-              🔋 {isTe ? 'బ్యాటరీ బ్యాకప్' : 'Low Solar / Battery'}
+              🔋 {isTe ? 'బ్యాటరీ బ్యాకప్' : 'Low Solar'}
             </button>
             <button
-              className={`demo-btn door ${doorOpen ? 'open' : ''}`}
+              className={`demo-btn door ${currentDoorOpen ? 'open' : ''}`}
               onClick={toggleDoor}
               title="Simulate opening or closing the cold storage door"
             >
-              {doorOpen ? '🚪 Door: OPEN' : '🚪 Door: CLOSED'}
+              {currentDoorOpen ? '🚪 Door: OPEN' : '🚪 Door: CLOSED'}
+            </button>
+            <button
+              className="demo-btn test-post"
+              onClick={handleTestPost}
+              disabled={testSending}
+              title="Send a sample hardware packet to Render API to test live sync"
+            >
+              📡 {testSending ? 'Sending...' : 'Test Cloud Packet'}
             </button>
           </div>
         </div>
@@ -925,10 +1018,9 @@ export const SimpleCleanDashboard: React.FC = () => {
           background: #f8fafc;
           color: #0f172a;
           font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-          padding-bottom: 80px; /* space for demo bar */
+          padding-bottom: 80px;
         }
 
-        /* Top Header */
         .clean-header {
           background: #ffffff;
           border-bottom: 2px solid #e2e8f0;
@@ -982,27 +1074,49 @@ export const SimpleCleanDashboard: React.FC = () => {
           margin: 2px 0 0 0;
           font-weight: 500;
         }
+
         .live-pill {
           display: inline-flex;
           align-items: center;
           gap: 6px;
+          font-size: 0.78rem;
+          font-weight: 800;
+          padding: 4px 12px;
+          border-radius: 9999px;
+          transition: all 0.3s ease;
+        }
+        .live-pill.live-active {
           background: #dcfce7;
           color: #15803d;
-          font-size: 0.75rem;
-          font-weight: 700;
-          padding: 3px 10px;
-          border-radius: 9999px;
-          border: 1px solid #86efac;
+          border: 1.5px solid #22c55e;
+          box-shadow: 0 0 10px rgba(34, 197, 94, 0.25);
+        }
+        .live-pill.live-waiting {
+          background: #fef9c3;
+          color: #854d0e;
+          border: 1.5px solid #eab308;
         }
         .live-dot {
           width: 8px;
           height: 8px;
           border-radius: 50%;
+        }
+        .pulse-green {
           background: #16a34a;
-          box-shadow: 0 0 6px #16a34a;
+          box-shadow: 0 0 8px #16a34a;
+          animation: pulse 1.5s infinite;
+        }
+        .pulse-amber {
+          background: #d97706;
+          box-shadow: 0 0 8px #d97706;
+          animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+          0% { transform: scale(0.95); opacity: 0.8; }
+          50% { transform: scale(1.3); opacity: 1; }
+          100% { transform: scale(0.95); opacity: 0.8; }
         }
 
-        /* Language Toggle */
         .lang-selector-group {
           display: flex;
           align-items: center;
@@ -1038,7 +1152,6 @@ export const SimpleCleanDashboard: React.FC = () => {
           box-shadow: 0 2px 6px rgba(2, 132, 199, 0.3);
         }
 
-        /* Dashboard Content */
         .dashboard-content {
           max-width: 1280px;
           margin: 24px auto;
@@ -1073,7 +1186,6 @@ export const SimpleCleanDashboard: React.FC = () => {
           margin: 0;
         }
 
-        /* Crop Selector Ribbon */
         .crops-scroll-container {
           display: flex;
           gap: 12px;
@@ -1135,7 +1247,6 @@ export const SimpleCleanDashboard: React.FC = () => {
           font-weight: 900;
         }
 
-        /* Smart Alert Banner */
         .smart-banner {
           border-radius: 16px;
           padding: 20px 24px;
@@ -1152,15 +1263,9 @@ export const SimpleCleanDashboard: React.FC = () => {
           background: linear-gradient(135deg, #fffbeb 0%, #fefce8 100%);
           border: 2px solid #fde047;
         }
-        .banner-alert-icon {
-          color: #d97706;
-        }
-        .banner-safe-icon {
-          color: #16a34a;
-        }
-        .banner-text-col {
-          flex: 1;
-        }
+        .banner-alert-icon { color: #d97706; }
+        .banner-safe-icon { color: #16a34a; }
+        .banner-text-col { flex: 1; }
         .banner-headline-row {
           display: flex;
           justify-content: space-between;
@@ -1220,7 +1325,6 @@ export const SimpleCleanDashboard: React.FC = () => {
           color: #1e293b;
         }
 
-        /* 6 Farmer Cards Grid */
         .farmer-cards-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
@@ -1352,7 +1456,6 @@ export const SimpleCleanDashboard: React.FC = () => {
           color: #0f172a;
         }
 
-        /* 16x2 I2C LCD Visualizer */
         .lcd-display-section {
           background: #ffffff;
           border: 2px solid #e2e8f0;
@@ -1372,9 +1475,7 @@ export const SimpleCleanDashboard: React.FC = () => {
           align-items: center;
           gap: 12px;
         }
-        .lcd-chip-icon {
-          font-size: 1.8rem;
-        }
+        .lcd-chip-icon { font-size: 1.8rem; }
         .lcd-title {
           font-size: 1.05rem;
           font-weight: 800;
@@ -1426,7 +1527,7 @@ export const SimpleCleanDashboard: React.FC = () => {
         .lcd-screw.br { bottom: 8px; right: 8px; }
 
         .lcd-screen-glass {
-          background: #15803d; /* Classic 16x2 green backlight */
+          background: #15803d;
           border: 3px solid #0f172a;
           border-radius: 6px;
           padding: 12px 18px;
@@ -1444,7 +1545,6 @@ export const SimpleCleanDashboard: React.FC = () => {
           line-height: 1.6;
         }
 
-        /* Tech Accordion */
         .tech-toggle-section {
           background: #ffffff;
           border: 2px solid #e2e8f0;
@@ -1461,18 +1561,14 @@ export const SimpleCleanDashboard: React.FC = () => {
           background: #ffffff;
           transition: background 0.15s ease;
         }
-        .tech-accordion-btn:hover {
-          background: #f8fafc;
-        }
+        .tech-accordion-btn:hover { background: #f8fafc; }
         .tech-accordion-left {
           display: flex;
           align-items: center;
           gap: 14px;
           text-align: left;
         }
-        .tech-icon {
-          color: #0284c7;
-        }
+        .tech-icon { color: #0284c7; }
         .tech-accordion-sub {
           font-size: 0.82rem;
           color: #64748b;
@@ -1514,9 +1610,7 @@ export const SimpleCleanDashboard: React.FC = () => {
           gap: 8px;
           margin-bottom: 10px;
         }
-        .tech-card-icon {
-          color: #0284c7;
-        }
+        .tech-card-icon { color: #0284c7; }
         .tech-card-header h4 {
           font-size: 0.95rem;
           font-weight: 800;
@@ -1534,11 +1628,8 @@ export const SimpleCleanDashboard: React.FC = () => {
           color: #475569;
           line-height: 1.45;
         }
-        .tech-card-list strong {
-          color: #1e293b;
-        }
+        .tech-card-list strong { color: #1e293b; }
 
-        /* Fixed Demo Simulation Bar */
         .demo-bar-fixed {
           position: fixed;
           bottom: 0;
@@ -1568,12 +1659,8 @@ export const SimpleCleanDashboard: React.FC = () => {
           font-size: 0.84rem;
           font-weight: 700;
         }
-        .demo-pulse {
-          color: #38bdf8;
-        }
-        .demo-text {
-          color: #f1f5f9;
-        }
+        .demo-pulse { color: #38bdf8; }
+        .demo-text { color: #f1f5f9; }
         .demo-buttons-group {
           display: flex;
           gap: 8px;
@@ -1589,50 +1676,29 @@ export const SimpleCleanDashboard: React.FC = () => {
           transition: all 0.15s ease;
           border: 1px solid rgba(255,255,255,0.15);
         }
-        .demo-btn.normal {
-          background: #15803d;
+        .demo-btn.normal { background: #15803d; }
+        .demo-btn.normal:hover { background: #16a34a; }
+        .demo-btn.warning { background: #ca8a04; }
+        .demo-btn.warning:hover { background: #eab308; }
+        .demo-btn.alert { background: #b91c1c; }
+        .demo-btn.alert:hover { background: #dc2626; }
+        .demo-btn.battery { background: #0369a1; }
+        .demo-btn.battery:hover { background: #0284c7; }
+        .demo-btn.door { background: #475569; }
+        .demo-btn.door.open { background: #dc2626; }
+        .demo-btn.test-post {
+          background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+          border-color: #8b5cf6;
         }
-        .demo-btn.normal:hover {
-          background: #16a34a;
-        }
-        .demo-btn.warning {
-          background: #ca8a04;
-        }
-        .demo-btn.warning:hover {
-          background: #eab308;
-        }
-        .demo-btn.alert {
-          background: #b91c1c;
-        }
-        .demo-btn.alert:hover {
-          background: #dc2626;
-        }
-        .demo-btn.battery {
-          background: #0369a1;
-        }
-        .demo-btn.battery:hover {
-          background: #0284c7;
-        }
-        .demo-btn.door {
-          background: #475569;
-        }
-        .demo-btn.door.open {
-          background: #dc2626;
+        .demo-btn.test-post:hover {
+          background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
         }
 
         @media (max-width: 768px) {
-          .farmer-cards-grid {
-            grid-template-columns: 1fr;
-          }
-          .clean-header {
-            padding: 12px 16px;
-          }
-          .brand-title {
-            font-size: 1.15rem;
-          }
-          .crops-scroll-container {
-            flex-wrap: nowrap;
-          }
+          .farmer-cards-grid { grid-template-columns: 1fr; }
+          .clean-header { padding: 12px 16px; }
+          .brand-title { font-size: 1.15rem; }
+          .crops-scroll-container { flex-wrap: nowrap; }
         }
       `}</style>
     </div>
