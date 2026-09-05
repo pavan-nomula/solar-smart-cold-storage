@@ -26,8 +26,8 @@
 const char* ssid = "YOUR_WIFI_NAME";            // Replace with your Wi-Fi / Mobile Hotspot SSID
 const char* password = "YOUR_WIFI_PASSWORD";    // Replace with your Wi-Fi Password
 
-// Paste your Render URL here after deploying (e.g. https://cold-storage.onrender.com/api/telemetry)
-const char* serverUrl = "https://YOUR-RENDER-APP-NAME.onrender.com/api/telemetry";
+// Render Live Cloud API Endpoint
+const char* serverUrl = "https://solar-smart-cold-storage-9qgo.onrender.com/api/telemetry";
 
 // ---------------------------------------------------------------------------------
 // 2. Hardware Pin Definitions
