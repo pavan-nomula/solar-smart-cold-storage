@@ -44,6 +44,12 @@ app.post('/api/telemetry', (req, res) => {
     const data = req.body;
     console.log('[ESP32 Telemetry Received]:', data);
 
+    const voc = data.voc !== undefined ? Number(data.voc) : latestTelemetry.voc;
+    const alcohol = data.alcohol !== undefined ? Number(data.alcohol) : latestTelemetry.alcohol;
+    // Exactly matches ESP32 physical LCD formula: 95 - (voc > 40 ? (voc - 40) * 0.5 : 0) - (alcohol > 15 ? (alcohol - 15) * 1.0 : 0)
+    const esp32Freshness = Math.round(95 - (voc > 40 ? (voc - 40) * 0.5 : 0) - (alcohol > 15 ? (alcohol - 15) * 1.0 : 0));
+    const freshnessVal = data.freshness !== undefined ? Number(data.freshness) : Math.max(25, Math.min(99, esp32Freshness));
+
     latestTelemetry = {
       temperature: data.temperature !== undefined ? Number(data.temperature) : latestTelemetry.temperature,
       humidity: data.humidity !== undefined ? Number(data.humidity) : latestTelemetry.humidity,
@@ -52,10 +58,10 @@ app.post('/api/telemetry', (req, res) => {
       solarPower: data.solarPower !== undefined ? Number(data.solarPower) : latestTelemetry.solarPower,
       coolingActive: data.coolingActive !== undefined ? Boolean(data.coolingActive) : latestTelemetry.coolingActive,
       coolingPower: data.coolingPower !== undefined ? Number(data.coolingPower) : 65.0,
-      voc: data.voc !== undefined ? Number(data.voc) : latestTelemetry.voc,
-      alcohol: data.alcohol !== undefined ? Number(data.alcohol) : latestTelemetry.alcohol,
+      voc: voc,
+      alcohol: alcohol,
       doorOpen: data.doorOpen !== undefined ? Boolean(data.doorOpen) : latestTelemetry.doorOpen,
-      freshness: data.freshness !== undefined ? Number(data.freshness) : latestTelemetry.freshness,
+      freshness: freshnessVal,
       lastUpdated: Date.now(),
       isLiveHardware: true
     };

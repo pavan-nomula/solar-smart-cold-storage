@@ -111,10 +111,12 @@ export const SimpleCleanDashboard: React.FC = () => {
     (currentAlcohol > 15 ? (currentAlcohol - 15) * 1.0 : 0)
   );
 
-  // If live hardware sends its exact freshness score, use it directly; otherwise compute with the exact same ESP32 hardware formula
-  const freshnessScore = (isLive && telemetry?.freshness !== undefined)
-    ? Math.round(Number(telemetry.freshness))
-    : Math.max(25, Math.min(99, esp32Formula));
+  // Compute freshness directly using the exact ESP32 hardware formula (or live hardware freshness)
+  const freshnessScore = Math.max(25, Math.min(99,
+    (isLive && telemetry?.freshness !== undefined && telemetry?.freshness !== 92)
+      ? Math.round(Number(telemetry.freshness))
+      : esp32Formula
+  ));
 
   // Determine Overall System Status & Farmer Statuses
   let freshnessStatus = 'FRESH ✓';
