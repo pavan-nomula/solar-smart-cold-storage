@@ -24,6 +24,7 @@ let latestTelemetry = {
   voc: 28.0,
   alcohol: 10.0,
   doorOpen: false,
+  freshness: 92,
   lastUpdated: null,
   isLiveHardware: false
 };
@@ -54,6 +55,7 @@ app.post('/api/telemetry', (req, res) => {
       voc: data.voc !== undefined ? Number(data.voc) : latestTelemetry.voc,
       alcohol: data.alcohol !== undefined ? Number(data.alcohol) : latestTelemetry.alcohol,
       doorOpen: data.doorOpen !== undefined ? Boolean(data.doorOpen) : latestTelemetry.doorOpen,
+      freshness: data.freshness !== undefined ? Number(data.freshness) : latestTelemetry.freshness,
       lastUpdated: Date.now(),
       isLiveHardware: true
     };

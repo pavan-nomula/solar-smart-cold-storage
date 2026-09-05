@@ -109,7 +109,12 @@ export const SimpleCleanDashboard: React.FC = () => {
   const tempExcess = Math.max(0, currentTemp - selectedCrop.maxTemp);
   const tempPenalty = tempExcess * 4;
   const rawScore = Math.round(100 - vocPenalty - alcoholPenalty - tempPenalty);
-  const freshnessScore = Math.max(25, Math.min(99, rawScore));
+  const calculatedFreshness = Math.max(25, Math.min(99, rawScore));
+
+  // If live hardware sends its exact freshness score, use it directly so physical LCD and Web Dashboard match 100%!
+  const freshnessScore = (isLive && telemetry?.freshness !== undefined)
+    ? Math.round(Number(telemetry.freshness))
+    : calculatedFreshness;
 
   // Determine Overall System Status & Farmer Statuses
   let freshnessStatus = 'FRESH ✓';

@@ -192,6 +192,7 @@ void loop() {
         doc["voc"] = vocPpm;
         doc["alcohol"] = alcoholPpm;
         doc["doorOpen"] = doorOpen;
+        doc["freshness"] = freshnessScore;
 
         String jsonPayload;
         serializeJson(doc, jsonPayload);
