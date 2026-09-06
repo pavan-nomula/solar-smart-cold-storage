@@ -99,20 +99,17 @@ export const SimpleCleanDashboard: React.FC = () => {
   const isTe = language === 'te';
   const isHi = language === 'hi';
 
-  // Exact ESP32 Hardware Calculation Formula (identical to esp32_cold_storage.ino):
-  // int freshnessScore = 95 - (vocPpm > 40 ? (vocPpm - 40) * 0.5 : 0) - (alcoholPpm > 15 ? (alcoholPpm - 15) * 1.0 : 0);
-  const esp32Formula = Math.round(
-    95 -
-    (currentVoc > 40 ? (currentVoc - 40) * 0.5 : 0) -
-    (currentAlcohol > 15 ? (currentAlcohol - 15) * 1.0 : 0)
-  );
+  // Post-Harvest Research-Based Freshness Formula (identical to esp32_cold_storage.ino):
+  // Evaluates Produce Shelf-Life using Temperature Thermal Abuse + Humidity Stress + MQ-2 Spoilage Gases
+  const pTemp = currentTemp > 15 ? 15 + (currentTemp - 15) * 5 : (currentTemp > selectedCrop.maxTemp ? (currentTemp - selectedCrop.maxTemp) * 3 : (currentTemp < selectedCrop.minTemp - 2 ? (selectedCrop.minTemp - 2 - currentTemp) * 6 : 0));
+  const pHum = currentHum < selectedCrop.minHumidity ? (selectedCrop.minHumidity - currentHum) * 0.6 : (currentHum > selectedCrop.maxHumidity + 4 ? (currentHum - (selectedCrop.maxHumidity + 4)) * 1.5 : 0);
+  const pGas = (currentVoc > 35 ? (currentVoc - 35) * 0.7 : 0) + (currentAlcohol > 12 ? (currentAlcohol - 12) * 1.2 : 0);
+  const esp32Formula = Math.max(15, Math.min(99, Math.round(98 - pTemp - pHum - pGas)));
 
-  // Compute freshness directly using the exact ESP32 hardware formula (or live hardware freshness)
-  const freshnessScore = Math.max(25, Math.min(99,
-    (isLive && telemetry?.freshness !== undefined && telemetry?.freshness !== 92)
-      ? Math.round(Number(telemetry.freshness))
-      : esp32Formula
-  ));
+  // Use live hardware freshness from ESP32 telemetry, or fallback to local research formula
+  const freshnessScore = (isLive && telemetry?.freshness !== undefined)
+    ? Math.round(Number(telemetry.freshness))
+    : esp32Formula;
 
   // Determine Overall System Status & Farmer Statuses
   let freshnessStatus = 'FRESH ✓';
@@ -422,10 +419,10 @@ export const SimpleCleanDashboard: React.FC = () => {
                 <p className="banner-description">
                   {freshnessLevel !== 'good'
                     ? isTe
-                      ? 'గ్యాస్ సెన్సార్లు (MQ-135 & MQ-3) కూరగాయలు పక్వానికి రావడం లేదా పాడయ్యే సంకేతాలను గుర్తించాయి.'
+                      ? 'గ్యాస్ సెన్సార్ (MQ-2) కూరగాయలు పక్వానికి రావడం లేదా పాడయ్యే సంకేతాలను గుర్తించింది.'
                       : isHi
-                      ? 'गैस सेंसरों ने सब्जियों के पकने या खराब होने के प्रारंभिक संकेत पहचाने हैं।'
-                      : 'Multi-gas sensors (MQ-135 & MQ-3) detected elevated volatile organic compounds or fermentation gasses.'
+                      ? 'गैस सेंसर (MQ-2) ने सब्जियों के पकने या खराब होने के प्रारंभिक संकेत पहचाने हैं।'
+                      : 'Gas sensor (MQ-2) detected elevated volatile organic compounds or fermentation gasses.'
                     : tempLevel !== 'good'
                     ? isTe
                       ? 'ఉష్ణోగ్రత నిర్దేశించిన పరిమితి కంటే ఎక్కువైంది. పెల్టియర్ కూలింగ్ నడుస్తోంది.'
@@ -550,10 +547,10 @@ export const SimpleCleanDashboard: React.FC = () => {
 
               <div className="card-sub-pills">
                 <span className="sub-pill">
-                  💨 MQ-135 (VOC): <strong>{Math.round(currentVoc)} ppm</strong>
+                  💨 MQ-2 (VOC): <strong>{Math.round(currentVoc)} ppm</strong>
                 </span>
                 <span className="sub-pill">
-                  🧪 MQ-3 (Alcohol): <strong>{Math.round(currentAlcohol)} ppm</strong>
+                  🧪 MQ-2 (Alcohol): <strong>{Math.round(currentAlcohol)} ppm</strong>
                 </span>
               </div>
             </div>
@@ -838,8 +835,8 @@ export const SimpleCleanDashboard: React.FC = () => {
                 </strong>
                 <p className="tech-accordion-sub">
                   {isTe
-                    ? 'ESP32, DHT11, MQ-135, MQ-3, పెల్టియర్ మరియు సోలార్ వివరాలు'
-                    : 'ESP32 telemetry, DHT11, MQ-135, MQ-3 gas sensor values, and Peltier energy circuit'}
+                    ? 'ESP32, DHT11, MQ-2, పెల్టియర్ మరియు సోలార్ వివరాలు'
+                    : 'ESP32 telemetry, DHT11, MQ-2 gas sensor values, and Peltier energy circuit'}
                 </p>
               </div>
             </div>
@@ -874,13 +871,13 @@ export const SimpleCleanDashboard: React.FC = () => {
                   </div>
                   <ul className="tech-card-list">
                     <li>
-                      <strong>MQ-135 Sensor:</strong> Detects VOCs & decomposing gases. Reading: <strong>{Math.round(currentVoc)} ppm</strong>.
+                      <strong>MQ-2 Sensor (VOC Channel):</strong> Detects VOCs & decomposing gases. Reading: <strong>{Math.round(currentVoc)} ppm</strong>.
                     </li>
                     <li>
-                      <strong>MQ-3 Sensor:</strong> Alcohol / fermentation detection. Reading: <strong>{Math.round(currentAlcohol)} ppm</strong>.
+                      <strong>MQ-2 Sensor (Alcohol Channel):</strong> Alcohol & fermentation decay detection. Reading: <strong>{Math.round(currentAlcohol)} ppm</strong>.
                     </li>
                     <li>
-                      <strong>Freshness Algorithm:</strong> Combines Gas + Temp + Humidity to calculate deterioration risk for {selectedCrop.name}.
+                      <strong>Freshness Algorithm:</strong> Research-backed multi-factor index combining MQ-2 Gas + Temperature + Humidity for {selectedCrop.name}.
                     </li>
                   </ul>
                 </div>

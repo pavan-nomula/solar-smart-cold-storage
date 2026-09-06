@@ -46,9 +46,15 @@ app.post('/api/telemetry', (req, res) => {
 
     const voc = data.voc !== undefined ? Number(data.voc) : latestTelemetry.voc;
     const alcohol = data.alcohol !== undefined ? Number(data.alcohol) : latestTelemetry.alcohol;
-    // Exactly matches ESP32 physical LCD formula: 95 - (voc > 40 ? (voc - 40) * 0.5 : 0) - (alcohol > 15 ? (alcohol - 15) * 1.0 : 0)
-    const esp32Freshness = Math.round(95 - (voc > 40 ? (voc - 40) * 0.5 : 0) - (alcohol > 15 ? (alcohol - 15) * 1.0 : 0));
-    const freshnessVal = data.freshness !== undefined ? Number(data.freshness) : Math.max(25, Math.min(99, esp32Freshness));
+    const temp = data.temperature !== undefined ? Number(data.temperature) : latestTelemetry.temperature;
+    const hum = data.humidity !== undefined ? Number(data.humidity) : latestTelemetry.humidity;
+
+    // Research-based multi-factor freshness (Temperature Thermal Abuse + Humidity Stress + MQ-2 Spoilage Gases)
+    const pTemp = temp > 15 ? 15 + (temp - 15) * 5 : (temp > 10 ? (temp - 10) * 3 : (temp < 1 ? (1 - temp) * 6 : 0));
+    const pHum = hum < 80 ? (80 - hum) * 0.6 : (hum > 94 ? (hum - 94) * 1.5 : 0);
+    const pGas = (voc > 35 ? (voc - 35) * 0.7 : 0) + (alcohol > 12 ? (alcohol - 12) * 1.2 : 0);
+    const calculatedFreshness = Math.max(15, Math.min(99, Math.round(98 - pTemp - pHum - pGas)));
+    const freshnessVal = data.freshness !== undefined ? Number(data.freshness) : calculatedFreshness;
 
     latestTelemetry = {
       temperature: data.temperature !== undefined ? Number(data.temperature) : latestTelemetry.temperature,
