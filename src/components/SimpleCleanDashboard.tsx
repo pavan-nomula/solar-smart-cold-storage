@@ -20,7 +20,6 @@ import {
   ChevronUp,
   RefreshCw,
   Gauge,
-  Activity,
   Wind,
   Wifi
 } from 'lucide-react';
@@ -37,12 +36,10 @@ export const SimpleCleanDashboard: React.FC = () => {
     voc,
     alcohol,
     doorOpen,
-    toggleDoor,
     selectedCrop,
     setSelectedCropId,
     language,
-    setLanguage,
-    applySimulation
+    setLanguage
   } = useStorage();
 
   const [showTechnical, setShowTechnical] = useState(false);
@@ -51,7 +48,6 @@ export const SimpleCleanDashboard: React.FC = () => {
   // Live Telemetry from Render /api/telemetry
   const [telemetry, setTelemetry] = useState<any>(null);
   const [secondsAgo, setSecondsAgo] = useState<number | null>(null);
-  const [testSending, setTestSending] = useState(false);
 
   // Poll /api/telemetry every 1.5 seconds
   useEffect(() => {
@@ -266,39 +262,6 @@ export const SimpleCleanDashboard: React.FC = () => {
     battLevel === 'critical' ||
     currentDoorOpen;
 
-  // Helper to test send hardware packet directly from UI
-  const handleTestPost = async () => {
-    setTestSending(true);
-    try {
-      await fetch('/api/telemetry', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          temperature: 7.6,
-          humidity: 88.0,
-          battery: 85.0,
-          batteryVoltage: 13.1,
-          solarPower: 138.0,
-          coolingActive: true,
-          coolingPower: 65.0,
-          voc: 24.0,
-          alcohol: 8.0,
-          doorOpen: false
-        })
-      });
-      // Refresh telemetry
-      const res = await fetch('/api/telemetry');
-      if (res.ok) {
-        const data = await res.json();
-        setTelemetry(data);
-        setSecondsAgo(0);
-      }
-    } catch (err) {
-      console.error('Test post failed:', err);
-    } finally {
-      setTestSending(false);
-    }
-  };
 
   return (
     <div className="simple-dashboard">
@@ -963,64 +926,6 @@ export const SimpleCleanDashboard: React.FC = () => {
         </section>
       </main>
 
-      {/* 7. QUICK DEMO SIMULATION BAR */}
-      <footer className="demo-bar-fixed">
-        <div className="demo-bar-inner">
-          <div className="demo-bar-label">
-            <Activity size={16} className="demo-pulse" />
-            <span className="demo-text">
-              {isTe ? 'డెమో టెస్టింగ్:' : 'Presentation Simulation:'}
-            </span>
-          </div>
-
-          <div className="demo-buttons-group">
-            <button
-              className="demo-btn normal"
-              onClick={() => applySimulation('normal')}
-              title="Reset all sensors to safe, fresh conditions"
-            >
-              🟢 {isTe ? 'సాధారణం' : 'Normal'}
-            </button>
-            <button
-              className="demo-btn warning"
-              onClick={() => applySimulation('freshness_warning')}
-              title="Simulate gas build-up from aging produce"
-            >
-              ⚠️ {isTe ? 'గ్యాస్ స్పైక్' : 'Spoilage Spike'}
-            </button>
-            <button
-              className="demo-btn alert"
-              onClick={() => applySimulation('temp_high')}
-              title="Simulate temperature rise"
-            >
-              🌡️ {isTe ? 'ఎక్కువ వేడి' : 'High Temp'}
-            </button>
-            <button
-              className="demo-btn battery"
-              onClick={() => applySimulation('battery_backup')}
-              title="Simulate solar disconnection / low battery"
-            >
-              🔋 {isTe ? 'బ్యాటరీ బ్యాకప్' : 'Low Solar'}
-            </button>
-            <button
-              className={`demo-btn door ${currentDoorOpen ? 'open' : ''}`}
-              onClick={toggleDoor}
-              title="Simulate opening or closing the cold storage door"
-            >
-              {currentDoorOpen ? '🚪 Door: OPEN' : '🚪 Door: CLOSED'}
-            </button>
-            <button
-              className="demo-btn test-post"
-              onClick={handleTestPost}
-              disabled={testSending}
-              title="Send a sample hardware packet to Render API to test live sync"
-            >
-              📡 {testSending ? 'Sending...' : 'Test Cloud Packet'}
-            </button>
-          </div>
-        </div>
-      </footer>
-
       {/* CSS STYLES FOR THE SIMPLE CLEAN DASHBOARD */}
       <style>{`
         .simple-dashboard {
@@ -1028,7 +933,7 @@ export const SimpleCleanDashboard: React.FC = () => {
           background: #f8fafc;
           color: #0f172a;
           font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-          padding-bottom: 80px;
+          padding-bottom: 32px;
         }
 
         .clean-header {
@@ -1640,69 +1545,6 @@ export const SimpleCleanDashboard: React.FC = () => {
         }
         .tech-card-list strong { color: #1e293b; }
 
-        .demo-bar-fixed {
-          position: fixed;
-          bottom: 0;
-          left: 0;
-          right: 0;
-          background: rgba(15, 23, 42, 0.95);
-          backdrop-filter: blur(10px);
-          border-top: 1px solid #334155;
-          padding: 10px 20px;
-          z-index: 100;
-          box-shadow: 0 -4px 16px rgba(0,0,0,0.25);
-        }
-        .demo-bar-inner {
-          max-width: 1280px;
-          margin: 0 auto;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          flex-wrap: wrap;
-          gap: 12px;
-        }
-        .demo-bar-label {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          color: #94a3b8;
-          font-size: 0.84rem;
-          font-weight: 700;
-        }
-        .demo-pulse { color: #38bdf8; }
-        .demo-text { color: #f1f5f9; }
-        .demo-buttons-group {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-        .demo-btn {
-          font-size: 0.8rem;
-          font-weight: 700;
-          padding: 6px 12px;
-          border-radius: 8px;
-          color: #ffffff;
-          cursor: pointer;
-          transition: all 0.15s ease;
-          border: 1px solid rgba(255,255,255,0.15);
-        }
-        .demo-btn.normal { background: #15803d; }
-        .demo-btn.normal:hover { background: #16a34a; }
-        .demo-btn.warning { background: #ca8a04; }
-        .demo-btn.warning:hover { background: #eab308; }
-        .demo-btn.alert { background: #b91c1c; }
-        .demo-btn.alert:hover { background: #dc2626; }
-        .demo-btn.battery { background: #0369a1; }
-        .demo-btn.battery:hover { background: #0284c7; }
-        .demo-btn.door { background: #475569; }
-        .demo-btn.door.open { background: #dc2626; }
-        .demo-btn.test-post {
-          background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
-          border-color: #8b5cf6;
-        }
-        .demo-btn.test-post:hover {
-          background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
-        }
 
         @media (max-width: 768px) {
           .farmer-cards-grid { grid-template-columns: 1fr; }
